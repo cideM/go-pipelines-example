@@ -21,8 +21,8 @@ func producer(ctx context.Context, strings []string) (<-chan string, error) {
 
 	go func() {
 		defer close(outChannel)
-		for _, s := range strings {
 
+		for _, s := range strings {
 			select {
 			case <-ctx.Done():
 				close(outChannel)
@@ -51,11 +51,9 @@ func transformer(ctx context.Context, input <-chan string) (<-chan string, <-cha
 
 			select {
 			case <-ctx.Done():
-				close(outChannel)
-				close(errorChannel)
 				return
 			default:
-        outChannel <- strings.ToUpper(s)
+				outChannel <- strings.ToUpper(s)
 				// if s == "bar" {
 				// 	errorChannel <- errors.New("oh no :(")
 				// 	return
@@ -80,8 +78,10 @@ func sink(ctx context.Context, cancelFunc context.CancelFunc, values <-chan stri
 				log.Println("error: ", err.Error())
 				cancelFunc()
 			}
-		case val := <-values:
-			log.Println(val)
+		case val, ok := <-values:
+			if ok {
+				log.Println("val: ", val)
+			}
 		}
 	}
 }
