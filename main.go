@@ -16,6 +16,9 @@ import (
 // happens.  The original go routine that sent the error won't see the context
 // cancellation since it already stopped doing whatever it was doing.
 
+// TODO: Second fan-out stage what about errors? Thread through? No, just
+// append individually created error channels
+
 func producer(ctx context.Context, strings []string) (<-chan string, error) {
 	outChannel := make(chan string)
 
