@@ -55,6 +55,7 @@ func transformer(ctx context.Context, input <-chan string) (<-chan string, <-cha
 			default:
 				if s == "bar" {
 					errorChannel <- errors.New("oh no :(")
+					return
 				} else {
 					outChannel <- strings.ToUpper(s)
 				}
@@ -65,17 +66,18 @@ func transformer(ctx context.Context, input <-chan string) (<-chan string, <-cha
 	return outChannel, errorChannel, nil
 }
 
-func consumer(ctx context.Context, cancelFunc context.CancelFunc, values <-chan string, errors <-chan error) {
-	for val := range values {
+func sink(ctx context.Context, cancelFunc context.CancelFunc, values <-chan string, errors <-chan error) {
+	for {
 		select {
 		case <-ctx.Done():
+			log.Print("done")
 			return
 		case err := <-errors:
 			if err != nil {
+        log.Println("error: ", err.Error())
 				cancelFunc()
-				log.Println(err.Error())
 			}
-		default:
+		case val := <-values:
 			log.Println(val)
 		}
 	}
@@ -97,5 +99,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	consumer(ctx, cancel, chan2, errChan1)
+	sink(ctx, cancel, chan2, errChan1)
 }
