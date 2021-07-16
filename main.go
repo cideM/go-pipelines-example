@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
+	// "errors"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,9 +22,6 @@ func producer(ctx context.Context, strings []string) (<-chan string, error) {
 	go func() {
 		defer close(outChannel)
 		for _, s := range strings {
-
-			// Fake a slow operation
-			time.Sleep(time.Second * 1)
 
 			select {
 			case <-ctx.Done():
@@ -47,18 +45,23 @@ func transformer(ctx context.Context, input <-chan string) (<-chan string, <-cha
 		defer close(errorChannel)
 
 		for s := range input {
+
+			// Fake a slow operation
+			time.Sleep(time.Second * 1)
+
 			select {
 			case <-ctx.Done():
 				close(outChannel)
 				close(errorChannel)
 				return
 			default:
-				if s == "bar" {
-					errorChannel <- errors.New("oh no :(")
-					return
-				} else {
-					outChannel <- strings.ToUpper(s)
-				}
+        outChannel <- strings.ToUpper(s)
+				// if s == "bar" {
+				// 	errorChannel <- errors.New("oh no :(")
+				// 	return
+				// } else {
+				// 	outChannel <- strings.ToUpper(s)
+				// }
 			}
 		}
 	}()
@@ -74,7 +77,7 @@ func sink(ctx context.Context, cancelFunc context.CancelFunc, values <-chan stri
 			return
 		case err := <-errors:
 			if err != nil {
-        log.Println("error: ", err.Error())
+				log.Println("error: ", err.Error())
 				cancelFunc()
 			}
 		case val := <-values:
@@ -94,10 +97,77 @@ func main() {
 		log.Fatal(err)
 	}
 
-	chan2, errChan1, err := transformer(ctx, chan1)
-	if err != nil {
-		log.Fatal(err)
+	stringChans := []<-chan string{}
+	errorChans := []<-chan error{}
+
+	for i := 0; i < 3; i++ {
+		strChan, errChan, err := transformer(ctx, chan1)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		stringChans = append(stringChans, strChan)
+		errorChans = append(errorChans, errChan)
 	}
 
-	sink(ctx, cancel, chan2, errChan1)
+	outChan := mergeStringChans(stringChans...)
+	errChan := mergeErrorChans(errorChans...)
+
+	sink(ctx, cancel, outChan, errChan)
+}
+
+func mergeStringChans(cs ...<-chan string) <-chan string {
+	var wg sync.WaitGroup
+	out := make(chan string)
+
+	// Start an output goroutine for each input channel in cs.  output
+	// copies values from c to out until c is closed, then calls wg.Done.
+	output := func(c <-chan string) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	// Start a goroutine to close out once all the output goroutines are
+	// done.  This must start after the wg.Add call.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
+}
+
+func mergeErrorChans(cs ...<-chan error) <-chan error {
+	var wg sync.WaitGroup
+	out := make(chan error)
+
+	// Start an output goroutine for each input channel in cs.  output
+	// copies values from c to out until c is closed, then calls wg.Done.
+	output := func(c <-chan error) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	// Start a goroutine to close out once all the output goroutines are
+	// done.  This must start after the wg.Add call.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
 }
